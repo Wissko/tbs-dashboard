@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import type { Commande } from '@/lib/types';
 import DashboardClient from '@/components/dashboard/DashboardClient';
 
@@ -6,6 +7,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage() {
   const supabase = await createClient();
+  const adminSupabase = createAdminClient();
 
   const {
     data: { user },
@@ -17,8 +19,8 @@ export default async function DashboardPage() {
     return null;
   }
 
-  // Récupérer le profil et tenant
-  const { data: userProfile } = await supabase
+  // Récupérer le profil et tenant via admin client (bypass RLS)
+  const { data: userProfile } = await adminSupabase
     .from('users')
     .select('tenant_id')
     .eq('id', user.id)
@@ -44,16 +46,17 @@ export default async function DashboardPage() {
     );
   }
 
-  const { data: tenant } = await supabase
+  const { data: tenant } = await adminSupabase
     .from('tenants')
     .select('name, slug')
     .eq('id', userProfile.tenant_id)
     .maybeSingle();
 
-  // Récupérer les commandes du tenant (RLS applique la sécurité)
-  const { data: commandes } = await supabase
+  // Récupérer les commandes du tenant
+  const { data: commandes } = await adminSupabase
     .from('commandes')
     .select('*')
+    .eq('tenant_id', userProfile.tenant_id)
     .order('created_at', { ascending: false });
 
   return (

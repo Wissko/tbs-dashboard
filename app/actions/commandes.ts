@@ -7,8 +7,9 @@ import { envoyerEmailAcceptation, envoyerEmailRefus } from '@/lib/email';
 // STRIPE: import du client Stripe pour créer les payment links
 import { stripe } from '@/lib/stripe';
 
-async function getTenantInfo(supabase: Awaited<ReturnType<typeof createClient>>, tenantId: string) {
-  const { data } = await supabase
+async function getTenantInfo(tenantId: string) {
+  const admin = createAdminClient();
+  const { data } = await admin
     .from('tenants')
     // STRIPE: on sélectionne aussi stripe_account_id pour la génération du payment link
     .select('name, email, stripe_account_id')
@@ -22,7 +23,8 @@ async function getAuthenticatedUserTenantId(supabase: Awaited<ReturnType<typeof 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: 'Non authentifié.' };
 
-  const { data: userProfile } = await supabase
+  const admin = createAdminClient();
+  const { data: userProfile } = await admin
     .from('users')
     .select('tenant_id')
     .eq('id', user.id)
@@ -47,7 +49,8 @@ export async function accepterCommande(commandeId: string, prixTotal: number) {
   }
 
   // SECURITY: Fetch commande with tenant_id check (defence in depth against IDOR)
-  const { data: commande, error: fetchError } = await supabase
+  const adminC = createAdminClient();
+  const { data: commande, error: fetchError } = await adminC
     .from('commandes')
     .select('*')
     .eq('id', commandeId)
@@ -63,7 +66,7 @@ export async function accepterCommande(commandeId: string, prixTotal: number) {
   const acompteEnCentimes = Math.round(prixTotal * 0.30 * 100);
 
   // Récupérer les infos tenant (avec stripe_account_id)
-  const tenant = await getTenantInfo(supabase, commande.tenant_id);
+  const tenant = await getTenantInfo(commande.tenant_id);
 
   // STRIPE: Générer un Payment Link Stripe si le tenant est connecté à Stripe
   let paymentLinkUrl: string | null = null;
@@ -156,7 +159,8 @@ export async function refuserCommande(commandeId: string) {
   const { tenantId } = authResult;
 
   // SECURITY: Fetch commande with tenant_id check (defence in depth against IDOR)
-  const { data: commande, error: fetchError } = await supabase
+  const adminC = createAdminClient();
+  const { data: commande, error: fetchError } = await adminC
     .from('commandes')
     .select('*')
     .eq('id', commandeId)
@@ -167,7 +171,7 @@ export async function refuserCommande(commandeId: string) {
     return { error: 'Commande introuvable.' };
   }
 
-  const { error: updateError } = await supabase
+  const { error: updateError } = await createAdminClient()
     .from('commandes')
     .update({ statut: 'refusee' })
     .eq('id', commandeId)
@@ -177,7 +181,7 @@ export async function refuserCommande(commandeId: string) {
     return { error: 'Erreur lors de la mise a jour.' };
   }
 
-  const tenant = await getTenantInfo(supabase, commande.tenant_id);
+  const tenant = await getTenantInfo(commande.tenant_id);
 
   if (tenant) {
     try {
@@ -206,7 +210,8 @@ export async function toggleAcompteRecu(commandeId: string, acompteActuel: boole
   const { tenantId } = authResult;
 
   // SECURITY: Verify commande ownership before mutation
-  const { data: commande, error: fetchError } = await supabase
+  const adminC = createAdminClient();
+  const { data: commande, error: fetchError } = await adminC
     .from('commandes')
     .select('id')
     .eq('id', commandeId)
@@ -217,7 +222,7 @@ export async function toggleAcompteRecu(commandeId: string, acompteActuel: boole
     return { error: 'Commande introuvable.' };
   }
 
-  const { error } = await supabase
+  const { error } = await createAdminClient()
     .from('commandes')
     .update({ acompte_envoye: !acompteActuel })
     .eq('id', commandeId)

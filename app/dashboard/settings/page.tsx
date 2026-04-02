@@ -1,5 +1,6 @@
 // STRIPE: Page settings — gestion de la connexion Stripe Connect
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { redirect } from 'next/navigation';
 
 export const dynamic = 'force-dynamic';
@@ -10,13 +11,14 @@ export default async function SettingsPage({
   searchParams: Promise<{ stripe_success?: string; stripe_error?: string }>;
 }) {
   const supabase = await createClient();
+  const adminSupabase = createAdminClient();
 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
     redirect('/login');
   }
 
-  const { data: userProfile } = await supabase
+  const { data: userProfile } = await adminSupabase
     .from('users')
     .select('tenant_id')
     .eq('id', user.id)
@@ -27,7 +29,7 @@ export default async function SettingsPage({
   }
 
   // Récupérer les infos du tenant (avec stripe_account_id)
-  const { data: tenant } = await supabase
+  const { data: tenant } = await adminSupabase
     .from('tenants')
     // STRIPE: on inclut stripe_account_id et stripe_connected_at
     .select('name, slug, stripe_account_id, stripe_connected_at')
