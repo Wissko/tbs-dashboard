@@ -107,14 +107,14 @@ export default async function SettingsPage({
                 ID: {tenant?.stripe_account_id}
               </p>
               <p className="text-sm text-[#6B6459] mt-2">
-                Les Payment Links seront automatiquement générés à l'acceptation des commandes.
+                Les Payment Links seront automatiquement générés à l&apos;acceptation des commandes.
               </p>
             </div>
           ) : (
             <div className="space-y-4">
               <p className="text-sm text-[#6B6459]">
                 Une fois connecté, un lien de paiement Stripe sera envoyé automatiquement
-                à vos clients lors de l'acceptation d'une commande (acompte 30%).
+                à vos clients lors de l&apos;acceptation d&apos;une commande (acompte 30%).
               </p>
               {/* STRIPE: Bouton de connexion OAuth */}
               <a
