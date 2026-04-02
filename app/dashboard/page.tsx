@@ -1,4 +1,3 @@
-import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import type { Commande } from '@/lib/types';
 import DashboardClient from '@/components/dashboard/DashboardClient';
@@ -12,28 +11,26 @@ export default async function DashboardPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Le middleware gère la redirection si pas de session
+  // On affiche un fallback vide si user null (ne devrait pas arriver)
   if (!user) {
-    redirect('/login');
+    return null;
   }
 
-  // Récupérer le profil et tenant de l'utilisateur
+  // Récupérer le profil et tenant
   const { data: userProfile } = await supabase
     .from('users')
     .select('tenant_id')
     .eq('id', user.id)
     .single();
 
-  if (!userProfile) {
-    redirect('/login');
-  }
-
   const { data: tenant } = await supabase
     .from('tenants')
     .select('name, slug')
-    .eq('id', userProfile.tenant_id)
-    .single();
+    .eq('id', userProfile?.tenant_id || '')
+    .maybeSingle();
 
-  // Récupérer les commandes du tenant (RLS applique la sécurité automatiquement)
+  // Récupérer les commandes du tenant (RLS applique la sécurité)
   const { data: commandes } = await supabase
     .from('commandes')
     .select('*')
