@@ -536,3 +536,85 @@ Headers appliqués à toutes les routes (`/(.*)`):
 - **A-2** : Rate limiting — nécessite Upstash Redis ou Vercel KV (infra externe)
 - **M-5** : Middleware matcher pour `/api/*` — décision architecturale à valider
 - **M-6** : Guard sur `userProfile` null dans dashboard — à ajouter lors d'un refactoring dashboard
+
+---
+
+## Audit de validation — 2026-04-02
+
+> **Auteur :** SORA 🔍 — Validation post-corrections Mylo 🏗️
+> **Commit audité :** `6a10170f8aa6118147fd125c350e22738ef91799`
+> **npm audit :** `0 vulnerabilities` (Next.js 15.5.14 · react 19 · npm install --legacy-peer-deps)
+
+---
+
+### Corrections validées ✓
+
+**[P0] Next.js 14.2.35 → 15.5.14**
+- ✅ `package.json` et `package-lock.json` mis à jour : `next@15.5.14`, `eslint-config-next@15.5.14`
+- ✅ `react`/`react-dom` migrés vers `^19` (compatibilité Next.js 15)
+- ✅ `npm audit` confirme **0 vulnérabilité** après installation
+- ✅ CVE-2026-23864 (High) et les 3 Moderate associées à 14.2.35 sont couverts par la montée de version
+
+**[P0] IDOR dans Server Actions (`app/actions/commandes.ts`)**
+- ✅ Fonction `getAuthenticatedUserTenantId()` implémentée : vérifie `supabase.auth.getUser()` + lookup `users.tenant_id`
+- ✅ Les 3 actions (`accepterCommande`, `refuserCommande`, `toggleAcompteRecu`) appliquent `.eq('tenant_id', tenantId)` sur SELECT **et** UPDATE
+- ✅ Double vérification appliquée : defense in depth — tenant_id filtré à la lecture ET à l'écriture
+- ✅ Validation `prixTotal` dans `accepterCommande` : `Number.isFinite`, `> 0`, `≤ 1_000_000`
+
+**[P1] Injection HTML dans les emails (`lib/email.ts`)**
+- ✅ Fonction `escapeHtml()` correctement implémentée (`&`, `<`, `>`, `"`, `'`)
+- ✅ Appliquée dans `envoyerEmailAcceptation` et `envoyerEmailRefus` sur : `prenom`, `type`, `dateEvenement`, `tenantName`, `tenantEmail`
+- ✅ Troncature appliquée : `tenantName` → 50 chars, `tenantEmail` → 255 chars
+- ✅ Champ `from:` utilise la version safe (`safeTenantName`)
+
+**[P1] Headers de sécurité HTTP (`next.config.mjs`)**
+- ✅ `Strict-Transport-Security` : `max-age=63072000; includeSubDomains; preload` (2 ans)
+- ✅ `X-Frame-Options: SAMEORIGIN`
+- ✅ `X-Content-Type-Options: nosniff`
+- ✅ `Referrer-Policy: strict-origin-when-cross-origin`
+- ✅ `Permissions-Policy` : camera, microphone, geolocation, payment désactivés
+- ✅ `Content-Security-Policy` : `default-src 'self'`, connect-src Supabase dynamique, `frame-ancestors 'none'`
+- ✅ Headers appliqués à toutes les routes `/(.*)`
+
+**[P1] Validation inputs `/api/commandes` (`app/api/commandes/route.ts`)**
+- ✅ Fonction `validateField()` : vérifie `typeof string`, longueur min/max, regex optionnel
+- ✅ Tous les champs validés : `type` (100), `date_evenement` (YYYY-MM-DD), `personnes` (1–4 chiffres), `description` (2000), `allergies` (500 optionnel), `prenom`/`nom` (100), `email` (RFC), `telephone` (6–20 chars, format permissif)
+- ✅ Erreur générique retournée (`Champ invalide.`) — aucun détail interne exposé
+
+---
+
+### Corrections incomplètes ⚠️
+
+**[P1] Injection email — `replyTo` non sanitisé (`lib/email.ts`)**
+- ⚠️ Le champ `replyTo: tenantEmail` utilise la valeur **brute** (non-échappée, non-tronquée) dans les deux fonctions
+- Ce champ est passé à l'API Resend sans validation — risque d'injection d'en-têtes email (header injection) si `tenantEmail` contient des `\r\n`
+- **Fix recommandé :** utiliser `safeTenantEmail` (déjà calculé) pour `replyTo`, ou valider le format email au préalable
+
+**[P1] CSP — `script-src 'unsafe-inline' 'unsafe-eval'` en production**
+- ⚠️ La CSP inclut `'unsafe-inline'` et `'unsafe-eval'` pour `script-src`, commentés comme "requis pour Tailwind et Next.js HMR"
+- `'unsafe-eval'` est nécessaire en dev mais **ne devrait pas être actif en production** (contourne la protection XSS de la CSP)
+- **Fix recommandé :** utiliser `process.env.NODE_ENV !== 'production'` pour conditionner `'unsafe-eval'` ; migrer vers nonces/hashes pour `'unsafe-inline'` (Next.js 15 supporte les nonces CSP nativement)
+
+---
+
+### Nouveaux problèmes détectés
+
+**[M-5] Middleware matcher — `/api/commandes` non couvert**
+- 🔴 Le middleware (`middleware.ts`) ne couvre que `['/', '/dashboard/:path*', '/login']`
+- La route `/api/commandes` (POST public) n'est pas protégée par le middleware
+- Pas de rate limiting actif → la route reste exposée aux abus volumétriques
+- Mylo l'avait noté en roadmap ; confirmé non corrigé
+
+**[M-6] Guard `userProfile` null dans dashboard**
+- 🟠 Confirmé non corrigé (noté en roadmap Mylo)
+- Si `users.tenant_id` est null en DB, l'erreur est gérée dans les Server Actions mais potentiellement pas dans le rendu dashboard
+
+**[A-2] Rate limiting absent**
+- 🟠 Toujours non implémenté — `/api/commandes` peut être spammé sans limite
+
+**[M-4] Clés API stockées en clair en DB**
+- 🟠 Toujours non résolu — comparaison directe `eq('api_key', apiKey)` sans hachage
+
+---
+
+*Audit de validation généré automatiquement par SORA 🔍 — commit `6a10170f` · 2026-04-02*
