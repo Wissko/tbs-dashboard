@@ -485,3 +485,54 @@ CREATE POLICY "commandes_no_delete" ON public.commandes
 ---
 
 *Audit généré automatiquement — vérifier manuellement les points critiques avant mise en production.*
+
+---
+
+## ✅ Corrections appliquées le 2026-04-02
+
+> **Auteur :** Mylo 🏗️ — Corrections sécurité post-audit SORA
+
+### [P0] Next.js mis à jour vers 15.5.14
+
+- `next` : `14.2.35` → `15.5.14` (résout CVE-2026-23864 High + 3 Moderate)
+- `eslint-config-next` : `14.2.35` → `15.5.14`
+- `react` / `react-dom` : `^18` → `^19` (compatibilité Next.js 15)
+- `npm audit` : **0 vulnérabilités** après mise à jour
+
+### [P0] IDOR corrigé dans les Server Actions (`app/actions/commandes.ts`)
+
+- Ajout d'une fonction `getAuthenticatedUserTenantId()` qui vérifie l'authentification et récupère le `tenant_id` de l'utilisateur connecté
+- Les 3 actions (`accepterCommande`, `refuserCommande`, `toggleAcompteRecu`) ajoutent maintenant `.eq('tenant_id', tenantId)` sur chaque requête SELECT et UPDATE
+- Validation de `prixTotal` dans `accepterCommande` (fini, positif, ≤ 1 000 000)
+- Commentaires `// SECURITY:` sur chaque ajout
+
+### [P1] Injection HTML corrigée dans les emails (`lib/email.ts`)
+
+- Ajout d'une fonction `escapeHtml()` qui échappe `&`, `<`, `>`, `"`, `'`
+- Toutes les variables utilisateur (`prenom`, `type`, `dateEvenement`, `tenantName`, `tenantEmail`) sont échappées avant interpolation HTML
+- `tenantName` limité à 50 chars, `tenantEmail` limité à 255 chars dans le champ `from:`
+- Commentaires `// SECURITY:` sur chaque ajout
+
+### [P1] Headers de sécurité HTTP ajoutés (`next.config.mjs`)
+
+Headers appliqués à toutes les routes (`/(.*)`):
+- `Strict-Transport-Security` : HSTS 2 ans, includeSubDomains, preload
+- `X-Frame-Options: SAMEORIGIN` — anti-clickjacking
+- `X-Content-Type-Options: nosniff` — anti-MIME sniffing
+- `Referrer-Policy: strict-origin-when-cross-origin`
+- `Permissions-Policy` : désactive camera, microphone, geolocation, payment
+- `Content-Security-Policy` : default-src 'self', connect-src Supabase, frame-ancestors 'none'
+
+### [P1] Validation des inputs renforcée (`app/api/commandes/route.ts`)
+
+- Suppression de la validation `typeof === 'string'` seule, remplacée par une fonction `validateField()` avec contrôles de longueur max et format regex
+- Champs validés : `type` (max 100), `date_evenement` (format `YYYY-MM-DD`), `personnes` (1–4 chiffres), `description` (max 2000), `allergies` (max 500), `prenom`/`nom` (max 100), `email` (format RFC), `telephone` (format permissif, 6–20 chars)
+- Erreur générique retournée (pas de détail interne exposé)
+- Commentaires `// SECURITY:` sur chaque ajout
+
+### Non corrigés dans cette session (roadmap)
+
+- **M-4** : Hachage des clés API en DB — nécessite une migration SQL + déploiement coordonné
+- **A-2** : Rate limiting — nécessite Upstash Redis ou Vercel KV (infra externe)
+- **M-5** : Middleware matcher pour `/api/*` — décision architecturale à valider
+- **M-6** : Guard sur `userProfile` null dans dashboard — à ajouter lors d'un refactoring dashboard
