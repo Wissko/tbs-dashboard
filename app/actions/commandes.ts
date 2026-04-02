@@ -2,12 +2,16 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { envoyerEmailAcceptation, envoyerEmailRefus } from '@/lib/email';
+// STRIPE: import du client Stripe pour créer les payment links
+import { stripe } from '@/lib/stripe';
 
 async function getTenantInfo(supabase: Awaited<ReturnType<typeof createClient>>, tenantId: string) {
   const { data } = await supabase
     .from('tenants')
-    .select('name, email')
+    // STRIPE: on sélectionne aussi stripe_account_id pour la génération du payment link
+    .select('name, email, stripe_account_id')
     .eq('id', tenantId)
     .single();
   return data;
@@ -55,11 +59,63 @@ export async function accepterCommande(commandeId: string, prixTotal: number) {
   }
 
   const acompte = prixTotal * 0.3;
+  // STRIPE: montant de l'acompte en centimes (30% du total)
+  const acompteEnCentimes = Math.round(prixTotal * 0.30 * 100);
 
-  // Mettre à jour la commande
-  const { error: updateError } = await supabase
+  // Récupérer les infos tenant (avec stripe_account_id)
+  const tenant = await getTenantInfo(supabase, commande.tenant_id);
+
+  // STRIPE: Générer un Payment Link Stripe si le tenant est connecté à Stripe
+  let paymentLinkUrl: string | null = null;
+  if (tenant?.stripe_account_id && process.env.STRIPE_SECRET_KEY) {
+    try {
+      // STRIPE: Créer d'abord un Price (inline product) sur le compte connecté
+      const price = await stripe.prices.create(
+        {
+          currency: 'eur',
+          unit_amount: acompteEnCentimes,
+          product_data: {
+            name: `Acompte 30% — ${commande.type} (${commande.date_evenement})`,
+          },
+        },
+        { stripeAccount: tenant.stripe_account_id }
+      );
+
+      // STRIPE: Créer le Payment Link avec metadata commande_id pour le webhook
+      const paymentLink = await stripe.paymentLinks.create(
+        {
+          line_items: [{ price: price.id, quantity: 1 }],
+          metadata: {
+            commande_id: commandeId,
+          },
+          after_completion: {
+            type: 'hosted_confirmation',
+            hosted_confirmation: {
+              custom_message: 'Merci ! Votre acompte a bien été reçu.',
+            },
+          },
+        },
+        { stripeAccount: tenant.stripe_account_id }
+      );
+
+      paymentLinkUrl = paymentLink.url;
+      console.log(`[STRIPE] Payment Link créé: ${paymentLinkUrl} pour commande ${commandeId}`);
+    } catch (stripeError) {
+      // STRIPE: On ne bloque pas l'acceptation si Stripe échoue
+      console.error('[STRIPE] Erreur création payment link:', stripeError);
+    }
+  }
+
+  // Mettre à jour la commande (statut + prix + payment_link_url si disponible)
+  const adminClient = createAdminClient();
+  const { error: updateError } = await adminClient
     .from('commandes')
-    .update({ statut: 'acceptee', prix_total: prixTotal })
+    .update({
+      statut: 'acceptee',
+      prix_total: prixTotal,
+      // STRIPE: stocker le lien de paiement dans la commande
+      ...(paymentLinkUrl ? { payment_link_url: paymentLinkUrl } : {}),
+    })
     .eq('id', commandeId)
     .eq('tenant_id', tenantId); // SECURITY: double-check tenant on update
 
@@ -67,10 +123,7 @@ export async function accepterCommande(commandeId: string, prixTotal: number) {
     return { error: 'Erreur lors de la mise a jour.' };
   }
 
-  // Récupérer les infos tenant
-  const tenant = await getTenantInfo(supabase, commande.tenant_id);
-
-  // Envoyer email
+  // Envoyer email avec le payment link si disponible
   if (tenant) {
     try {
       await envoyerEmailAcceptation({
@@ -82,6 +135,8 @@ export async function accepterCommande(commandeId: string, prixTotal: number) {
         acompte,
         tenantName: tenant.name,
         tenantEmail: tenant.email,
+        // STRIPE: passer le lien de paiement à l'email
+        paymentLinkUrl: paymentLinkUrl ?? undefined,
       });
     } catch (emailError) {
       console.error('Erreur email acceptation:', emailError);
@@ -89,7 +144,7 @@ export async function accepterCommande(commandeId: string, prixTotal: number) {
   }
 
   revalidatePath('/dashboard');
-  return { success: true, acompte };
+  return { success: true, acompte, paymentLinkUrl };
 }
 
 export async function refuserCommande(commandeId: string) {

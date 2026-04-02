@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+// SECURITY: vérification bcrypt des clés API — jamais de comparaison en clair
+import { verifyApiKey } from '@/lib/api-key';
 
 // SECURITY: Strict input validation schema — rejects malformed or oversized data
 // without exposing internal error details to the caller
@@ -90,21 +92,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const supabase = createAdminClient();
+  // SECURITY: vérification bcrypt — résistant aux timing attacks et fuites DB
+  const tenant = await verifyApiKey(apiKey);
 
-  // Vérifier la clé API et récupérer le tenant
-  const { data: tenant, error: tenantError } = await supabase
-    .from('tenants')
-    .select('id')
-    .eq('api_key', apiKey)
-    .single();
-
-  if (tenantError || !tenant) {
+  if (!tenant) {
     return NextResponse.json(
       { error: 'Clé API invalide.' },
       { status: 401 }
     );
   }
+
+  const supabase = createAdminClient();
 
   let body: Record<string, unknown>;
   try {

@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 
+// SECURITY: unsafe-eval uniquement en dev (HMR Next.js) — jamais en production
+const isDev = process.env.NODE_ENV !== 'production';
+
 // SECURITY: HTTP security headers applied to all routes
 const securityHeaders = [
   // Prevent DNS prefetching leakage
@@ -19,8 +22,9 @@ const securityHeaders = [
     key: 'Content-Security-Policy',
     value: [
       "default-src 'self'",
-      // 'unsafe-inline' required for Tailwind inline styles; 'unsafe-eval' for Next.js dev HMR
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      // 'unsafe-inline' required for Tailwind inline styles
+      // SECURITY: 'unsafe-eval' restreint au dev (HMR Next.js) — supprimé en production
+      `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`,
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com",
       // Allow connections to Supabase (loaded at runtime via env var)

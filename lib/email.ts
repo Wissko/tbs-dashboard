@@ -21,6 +21,7 @@ export async function envoyerEmailAcceptation({
   acompte,
   tenantName,
   tenantEmail,
+  paymentLinkUrl,
 }: {
   destinataire: string;
   prenom: string;
@@ -30,6 +31,8 @@ export async function envoyerEmailAcceptation({
   acompte: number;
   tenantName: string;
   tenantEmail: string;
+  // STRIPE: lien de paiement optionnel si le tenant est connecté à Stripe
+  paymentLinkUrl?: string;
 }) {
   // SECURITY: Escape all user-controlled strings before HTML interpolation
   const safePprenom = escapeHtml(prenom);
@@ -38,10 +41,27 @@ export async function envoyerEmailAcceptation({
   const safeTenantName = escapeHtml(tenantName).substring(0, 50);
   const safeTenantEmail = escapeHtml(tenantEmail).substring(0, 255);
 
+  // STRIPE: Bloc HTML du bouton de paiement — affiché uniquement si disponible
+  const stripePaymentBlock = paymentLinkUrl
+    ? `
+        <div style="text-align: center; margin: 32px 0;">
+          <a href="${paymentLinkUrl}"
+             style="display: inline-block; background-color: #C9A96E; color: white;
+                    padding: 14px 32px; text-decoration: none; border-radius: 4px;
+                    font-family: Georgia, serif; font-size: 16px; font-weight: bold;">
+            Payer l'acompte de ${acompte.toFixed(2)} EUR
+          </a>
+          <p style="color: #666; font-size: 13px; margin-top: 12px;">
+            Paiement sécurisé par Stripe
+          </p>
+        </div>`
+    : `<p>Notre equipe vous contactera prochainement avec les details de paiement.</p>`;
+
   return resend.emails.send({
     from: `${safeTenantName} <noreply@tbs-dashboard.fr>`,
     to: destinataire,
-    replyTo: tenantEmail,
+    // SECURITY: utiliser la version échappée pour éviter toute injection dans les headers email
+    replyTo: safeTenantEmail,
     subject: `Votre commande a ete acceptee - ${safeTenantName}`,
     html: `
       <div style="font-family: Georgia, serif; max-width: 600px; margin: 0 auto; color: #1A1410;">
@@ -66,7 +86,7 @@ export async function envoyerEmailAcceptation({
           </tr>
         </table>
         <p>Pour confirmer votre reservation, veuillez regler l'acompte de <strong>${acompte.toFixed(2)} EUR</strong>.</p>
-        <p>Notre equipe vous contactera prochainement avec les details de paiement.</p>
+        ${stripePaymentBlock}
         <hr style="border: none; border-top: 1px solid #C9A96E; margin: 32px 0;" />
         <p style="color: #666; font-size: 14px;">${safeTenantName} - ${safeTenantEmail}</p>
       </div>
@@ -96,7 +116,8 @@ export async function envoyerEmailRefus({
   return resend.emails.send({
     from: `${safeTenantName} <noreply@tbs-dashboard.fr>`,
     to: destinataire,
-    replyTo: tenantEmail,
+    // SECURITY: utiliser la version échappée pour éviter toute injection dans les headers email
+    replyTo: safeTenantEmail,
     subject: `Votre demande - ${safeTenantName}`,
     html: `
       <div style="font-family: Georgia, serif; max-width: 600px; margin: 0 auto; color: #1A1410;">
