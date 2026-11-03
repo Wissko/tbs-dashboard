@@ -1,16 +1,30 @@
 # TBS Dashboard
 
-SaaS de gestion de commandes sur mesure — boulangeries et patisseries.
+Application de gestion de commandes sur mesure pour boulangeries et pâtisseries, avec authentification, données organisées par tenant et emails transactionnels.
+
+## Lire le projet en quelques minutes
+
+| Sujet | Point d'entrée |
+| --- | --- |
+| Logique métier et contrôle du tenant | [`app/actions/commandes.ts`](app/actions/commandes.ts) |
+| Réception de demandes externes | [`app/api/commandes/route.ts`](app/api/commandes/route.ts) |
+| Modèle de données et politiques RLS | [`supabase/migrations/`](supabase/migrations/) |
+| Vérification des clés API | [`lib/api-key.ts`](lib/api-key.ts) |
+| Parcours Stripe Connect | [`app/api/stripe/`](app/api/stripe/) et [`lib/stripe.ts`](lib/stripe.ts) |
+
+Le code utilise des filtres `tenant_id` dans les actions serveur et des politiques RLS côté base. L'intégration Stripe Connect est présente dans le dépôt ; son fonctionnement de bout en bout dépend des comptes, secrets et webhooks configurés.
+
+**État du projet :** application en développement. Aucun compte de démonstration public ni suite de tests automatisés ou workflow CI n'est fourni dans le dépôt. Le code et les instructions d'installation constituent les points d'entrée pour une revue technique.
 
 ---
 
 ## Stack
 
-- **Next.js 14** — App Router, TypeScript
+- **Next.js 15 / React 19** — App Router, TypeScript
 - **Tailwind CSS** — Design premium
 - **Supabase** — Base de donnees + Auth + RLS multi-tenant
 - **Resend** — Emails transactionnels
-- **Stripe** — Paiement (architecture anticipee, non implementee)
+- **Stripe Connect** — Routes de connexion, callback et webhook ; génération de liens de paiement dans le code
 
 ---
 
@@ -27,7 +41,7 @@ npm install
 ### 2. Configurer Supabase
 
 1. Creer un nouveau projet sur [supabase.com](https://supabase.com)
-2. Dans **SQL Editor**, executer le contenu de `supabase/migrations/001_init.sql`
+2. Dans **SQL Editor**, exécuter les migrations de `supabase/migrations/` dans l’ordre : `001_init.sql`, `002_stripe_connect.sql`, puis `003_api_key_hash.sql`. Lire leurs commentaires avant de les appliquer à une base existante.
 3. Recuperer vos cles dans **Settings > API**
 
 ### 3. Variables d'environnement
@@ -44,6 +58,10 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
 SUPABASE_SERVICE_ROLE_KEY=eyJ...
 RESEND_API_KEY=re_...
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+STRIPE_SECRET_KEY=
+STRIPE_PUBLISHABLE_KEY=
+STRIPE_WEBHOOK_SECRET=
+STRIPE_CLIENT_ID=
 ```
 
 ### 4. Creer le premier tenant et utilisateur
@@ -79,8 +97,8 @@ Ouvrir [http://localhost:3000](http://localhost:3000)
 
 - Chaque tenant (boulangerie) a un espace isole
 - Les utilisateurs sont lies a un tenant via `users.tenant_id`
-- La RLS (Row Level Security) Supabase garantit l'isolation : un user ne voit jamais les donnees d'un autre tenant
-- Chaque tenant a une `api_key` unique pour les integrations externes
+- Les politiques RLS (Row Level Security) Supabase filtrent les accès par tenant ; leur comportement doit être vérifié avec plusieurs comptes sur la base configurée
+- Chaque tenant dispose d’une clé API pour les intégrations externes. Le code prend en charge des hashes bcrypt et conserve un fallback vers les anciennes clés en clair pour compatibilité.
 
 ---
 
@@ -154,8 +172,18 @@ Compatible Vercel (recommande) :
 
 ## Roadmap
 
-- [ ] Stripe — paiement acompte en ligne
+- [x] Code Stripe Connect et génération de liens de paiement
+- [ ] Validation du parcours Stripe de bout en bout en environnement de test
+- [ ] Tests automatisés d’isolation entre tenants et des actions métier
+- [ ] Intégration continue et limitation de débit de l’API
 - [ ] Multi-utilisateurs par tenant
 - [ ] Calendrier des evenements
 - [ ] Notifications push
 - [ ] Export PDF des commandes
+
+
+## Points à renforcer
+
+L’ancien [`AUDIT.md`](AUDIT.md) décrit un état historique : ses constats et résultats de commandes ne représentent pas automatiquement la version actuelle. La génération des clés API utilise encore `Math.random()` et la vérification accepte l'ancien stockage en clair. Ces points, la limitation de débit et les tests d'isolation doivent être traités avant de présenter le projet comme prêt pour la production.
+
+Les instructions ci-dessus décrivent la configuration attendue ; cette mise à jour de documentation ne constitue pas une validation du déploiement ou du parcours de paiement.
